@@ -298,7 +298,16 @@ func (lbaas *LbaasV2) createOctaviaLoadBalancer(ctx context.Context, name, clust
 		}
 	}
 
+	if lbaas.opts.AdditionalVipsSubnetID != "" {
+		createOpts.AdditionalVips = []loadbalancers.AdditionalVip{
+			{
+				SubnetID: lbaas.opts.AdditionalVipsSubnetID,
+			},
+		}
+	}
+
 	mc := metrics.NewMetricContext("loadbalancer", "create")
+	klog.InfoS("Creating loadbalancer with ", createOpts)
 	loadbalancer, err := loadbalancers.Create(ctx, lbaas.lb, createOpts).Extract()
 	if mc.ObserveRequest(err) != nil {
 		var printObj interface{} = createOpts
@@ -350,18 +359,22 @@ func (lbaas *LbaasV2) GetLoadBalancer(ctx context.Context, clusterName string, s
 
 	status := &corev1.LoadBalancerStatus{}
 	portID := loadbalancer.VipPortID
-	if portID != "" {
-		floatIP, err := openstackutil.GetFloatingIPByPortID(ctx, lbaas.network, portID)
-		if err != nil {
-			return nil, false, fmt.Errorf("failed when trying to get floating IP for port %s: %v", portID, err)
-		}
-		if floatIP != nil {
-			status.Ingress = []corev1.LoadBalancerIngress{{IP: floatIP.FloatingIP}}
-		} else {
-			status.Ingress = []corev1.LoadBalancerIngress{{IP: loadbalancer.VipAddress}}
+	if lbaas.opts.AdditionalVipsSubnetID != "" {
+		floatIP := loadbalancer.AdditionalVips[0].IPAddress
+		status.Ingress = []corev1.LoadBalancerIngress{{IP: floatIP}}
+	} else {
+		if portID != "" {
+			floatIP, err := openstackutil.GetFloatingIPByPortID(ctx, lbaas.network, portID)
+			if err != nil {
+				return nil, false, fmt.Errorf("failed when trying to get floating IP for port %s: %v", portID, err)
+			}
+			if floatIP != nil {
+				status.Ingress = []corev1.LoadBalancerIngress{{IP: floatIP.FloatingIP}}
+			} else {
+				status.Ingress = []corev1.LoadBalancerIngress{{IP: loadbalancer.VipAddress}}
+			}
 		}
 	}
-
 	return status, true, nil
 }
 
@@ -637,6 +650,12 @@ func (lbaas *LbaasV2) ensureFloatingIP(ctx context.Context, clusterName string, 
 	serviceName := fmt.Sprintf("%s/%s", service.Namespace, service.Name)
 
 	// We need to fetch the FIP attached to load balancer's VIP port for both codepaths
+	if lbaas.opts.AdditionalVipsSubnetID != "" {
+		AdditionalVipsIP := lb.AdditionalVips[0].IPAddress
+		msg := "Floating IP from AdditionalVipsSubnet is used %s for %s."
+		klog.Infof(msg, AdditionalVipsIP, serviceName)
+		return AdditionalVipsIP, nil
+	}
 	portID := lb.VipPortID
 	floatIP, err := openstackutil.GetFloatingIPByPortID(ctx, lbaas.network, portID)
 	if err != nil {
@@ -1811,14 +1830,21 @@ func (lbaas *LbaasV2) ensureOctaviaLoadBalancer(ctx context.Context, clusterName
 
 	addr := loadbalancer.VipAddress
 	// IPv6 Load Balancers have no support for Floating IP.
-	if netutils.IsIPv6String(addr) {
-		msg := "Floating IP not supported for IPv6 Service %s. Using IPv6 address instead %s."
-		lbaas.eventRecorder.Eventf(service, corev1.EventTypeWarning, eventLBFloatingIPSkipped, msg, serviceName, addr)
-		klog.Infof(msg, serviceName, addr)
-	} else {
+	if lbaas.opts.AdditionalVipsSubnetID != "" {
 		addr, err = lbaas.ensureFloatingIP(ctx, clusterName, service, loadbalancer, svcConf, isLBOwner)
 		if err != nil {
 			return nil, err
+		}
+	} else {
+		if netutils.IsIPv6String(addr) {
+			msg := "Floating IP not supported for IPv6 Service %s. Using IPv6 address instead %s."
+			lbaas.eventRecorder.Eventf(service, corev1.EventTypeWarning, eventLBFloatingIPSkipped, msg, serviceName, addr)
+			klog.Infof(msg, serviceName, addr)
+		} else {
+			addr, err = lbaas.ensureFloatingIP(ctx, clusterName, service, loadbalancer, svcConf, isLBOwner)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 

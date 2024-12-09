@@ -225,6 +225,9 @@ Although the openstack-cloud-controller-manager was initially implemented with N
 * `network-id`
   ID of the Neutron network on which to create load balancer VIP, not needed if `subnet-id` is set. If not set network will be autodetected based on the network used by cluster nodes.
 
+* `additional-vips-subnet-id`
+  ID of the Neutron network which is used as an additional to `subnet-id` for load balancer (for example when LB uses dual stack IP and could only be created with IPv6 `subnet-id`).
+
 * `manage-security-groups`
   If the Neutron security groups should be managed separately. Default: false
 

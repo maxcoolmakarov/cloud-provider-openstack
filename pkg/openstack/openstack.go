@@ -126,6 +126,7 @@ type LoadBalancerOpts struct {
 	// revive:disable:var-naming
 	TlsContainerRef string `gcfg:"default-tls-container-ref"` //  reference to a tls container
 	// revive:enable:var-naming
+	AdditionalVipsSubnetID string `gcfg:"additional-vips-subnet-id"` // For DualStack when LB created with primary IPv6 Network
 }
 
 // LBClass defines the corresponding floating network, floating subnet or internal subnet ID
@@ -230,6 +231,7 @@ func ReadConfig(config io.Reader) (Config, error) {
 	cfg.LoadBalancer.ContainerStore = "barbican"
 	cfg.LoadBalancer.MaxSharedLB = 2
 	cfg.LoadBalancer.ProviderRequiresSerialAPICalls = false
+	cfg.LoadBalancer.AdditionalVipsSubnetID = ""
 
 	err := gcfg.FatalOnly(gcfg.ReadInto(&cfg, config))
 	if err != nil {
@@ -283,7 +285,7 @@ func checkOpenStackOpts(openstackOpts *OpenStack) error {
 	return metadata.CheckMetadataSearchOrder(openstackOpts.metadataOpts.SearchOrder)
 }
 
-// NewOpenStack creates a new new instance of the openstack struct from a config struct
+// NewOpenStack creates a new instance of the openstack struct from a config struct
 func NewOpenStack(cfg Config) (*OpenStack, error) {
 	provider, err := client.NewOpenStackClient(&cfg.Global, "openstack-cloud-controller-manager", userAgentData...)
 	if err != nil {
