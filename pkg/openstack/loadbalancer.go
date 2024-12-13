@@ -307,7 +307,7 @@ func (lbaas *LbaasV2) createOctaviaLoadBalancer(ctx context.Context, name, clust
 	}
 
 	mc := metrics.NewMetricContext("loadbalancer", "create")
-	klog.InfoS("Creating loadbalancer with ", createOpts)
+	klog.InfoS("Creating loadbalancer with ", fmt.Sprintf("%+v", createOpts))
 	loadbalancer, err := loadbalancers.Create(ctx, lbaas.lb, createOpts).Extract()
 	if mc.ObserveRequest(err) != nil {
 		var printObj interface{} = createOpts
